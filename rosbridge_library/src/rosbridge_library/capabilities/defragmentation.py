@@ -1,6 +1,7 @@
 from rosbridge_library.capability import Capability
 from datetime import datetime
 import threading
+import datetime
 
 class ReceivedFragments():
     """
@@ -80,7 +81,7 @@ class Defragment(Capability, threading.Thread):
     #   4.b) pass the reconstructed message string to protocol.incoming()       # protocol.incoming is checking message fields by itself, so no need to do this before passing the reconstructed message to protocol
     #   4.c) remove the fragment list to free up memory                        
     def defragment(self, message):
-        now = datetime.now()
+        now = datetime.datetime.now()
 
         if self.received_fragments != None:
             for id in self.received_fragments.keys() :
@@ -169,13 +170,13 @@ class Defragment(Capability, threading.Thread):
             self.protocol.log("debug", log_msg)
 
             # Reconstruct the message
-            reconstructed_msg = ''.join(self.received_fragments[msg_id]["fragment_list"][0:message["total"]])
-            log_msg = ["reconstructed original message:\n"]
-            log_msg.append(reconstructed_msg)
-            log_msg = ''.join(log_msg)
-            self.protocol.log("debug", log_msg)
-
-            duration = datetime.now() - now
+            # reconstructed_msg = ''.join(self.received_fragments[msg_id]["fragment_list"][0:message["total"]])
+            reconstructed_msg = ''
+            for index in range(message['total']):
+                reconstructed_msg += self.received_fragments[msg_id]['fragment_list'][index]
+            log_msg = "reconstructed original message " + str(msg_id)
+            self.protocol.log("error", log_msg)
+            duration = datetime.datetime.now() - now
 
             # Pass the reconstructed message to rosbridge
             self.protocol.incoming(reconstructed_msg)
