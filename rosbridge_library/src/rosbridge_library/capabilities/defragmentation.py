@@ -128,19 +128,25 @@ class Defragment(Capability, threading.Thread):
             self.protocol.log("debug", log_msg)
 
         #print "received fragments:", len(self.received_fragments[msg_id]["fragment_list"].keys())
-
         # Add fragment to fragment container's list if not already in list
-        if ((msg_num not in self.received_fragments[msg_id]["fragment_list"].keys() ) and
-             msg_num <= self.received_fragments[msg_id]["total"] and
-             msg_total == self.received_fragments[msg_id]["total"]
-            ):
-            self.received_fragments[msg_id]["fragment_list"][msg_num] = msg_data
-            self.received_fragments[msg_id]["timestamp_last_append"] = now
-            log_msg = ["appended fragment #" + str(msg_num)]
-            log_msg.extend([" (total: ", str(msg_total), ") to fragment list for messageID ", str(msg_id)])
-            self.protocol.log("debug", ''.join(log_msg))
+        if msg_num not in self.received_fragments[msg_id]["fragment_list"].keys():
+            if msg_num <= self.received_fragments[msg_id]["total"]:
+                if msg_total == self.received_fragments[msg_id]["total"]:
+                    self.received_fragments[msg_id]["fragment_list"][msg_num] = msg_data
+                    self.received_fragments[msg_id]["timestamp_last_append"] = now
+                    log_msg = ["appended fragment #" + str(msg_num)]
+                    log_msg.extend([" (total: ", str(msg_total), ") to fragment list for messageID: ", str(msg_id)])
+                    self.protocol.log("debug", ''.join(log_msg))
+                else:
+                    log_msg = "error while trying to append fragment - all received: " + str(msg_num)
+                    self.protocol.log("error", log_msg)
+                    return
+            else:
+                log_msg = "error while trying to append fragment - to large index: " + str(msg_num)
+                self.protocol.log("error", log_msg)
+                return
         else:
-            log_msg = "error while trying to append fragment " + str(msg_num)
+            log_msg = "error while trying to append fragment - already present: " + str(msg_num)
             self.protocol.log("error", log_msg)
             return
 
@@ -175,7 +181,7 @@ class Defragment(Capability, threading.Thread):
             for index in range(message['total']):
                 reconstructed_msg += self.received_fragments[msg_id]['fragment_list'][index]
             log_msg = "reconstructed original message " + str(msg_id)
-            self.protocol.log("error", log_msg)
+            self.protocol.log("info", log_msg)
             duration = datetime.datetime.now() - now
 
             # Pass the reconstructed message to rosbridge
