@@ -33,6 +33,8 @@
 from rosbridge_library.capability import Capability
 import math
 import random
+import json
+import zlib
 
 
 class Fragmentation(Capability):
@@ -69,7 +71,7 @@ class Fragmentation(Capability):
             # self.fragmentation_seed = self.fragmentation_seed + 1
             
         serialized = self.protocol.serialize(message, mid)
-        
+
         if serialized is None:
             return []
         
@@ -93,6 +95,7 @@ class Fragmentation(Capability):
         for i in range(0, len(msg), size):
             fragment = msg[i:i+size]
             yield self._create_fragment(fragment, n, total, mid)
+            # yield self.protocol.serialize(self._create_fragment(fragment, n, total, mid))
             n = n + 1
     
     def _create_fragment(self, fragment, num, total, mid):

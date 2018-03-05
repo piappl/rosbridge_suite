@@ -33,6 +33,7 @@
 import rospy
 import time
 import bson
+import zlib 
 from rosbridge_library.internal.exceptions import InvalidArgumentException
 from rosbridge_library.internal.exceptions import MissingArgumentException
 
@@ -74,8 +75,8 @@ class Protocol:
     fragment_size = None
     png = None
     # buffer used to gather partial JSON-objects (could be caused by small tcp-buffers or similar..)
-    buffer = ""
-    old_buffer = ""
+    # buffer = ""
+    # old_buffer = ""
     busy = False
     # if this is too low, ("simple")clients network stacks will get flooded (when sending fragments of a huge message..)
     # .. depends on message_size/bandwidth/performance/client_limits/...
@@ -113,18 +114,16 @@ class Protocol:
         message_string -- the wire-level message sent by the client
 
         """
-        self.buffer = self.buffer + message_string
         msg = None
 
         # take care of having multiple JSON-objects in receiving buffer
         # ..first, try to load the whole buffer as a JSON-object
         try:
-            msg = self.deserialize(self.buffer)
-            self.buffer = ""
+            msg=json.loads(zlib.decompress(message_string))
 
         # if loading whole object fails try to load part of it (from first opening bracket "{" to next closing bracket "}"
         # .. this causes Exceptions on "inner" closing brackets --> so I suppressed logging of deserialization errors
-        except Exception, e:
+        except Exception as e:
             if self.bson_only_mode:
                 # Since BSON should be used in conjunction with a network handler
                 # that receives exactly one full BSON message.
@@ -145,25 +144,28 @@ class Protocol:
                 #     fragment data must NOT (!) contain a complete json-object that has an "op-field"
                 #
                 # an alternative solution would be to only check from first opening bracket and have a time out on data in input buffer.. (to handle broken data)
-                opening_brackets = [i for i, letter in enumerate(self.buffer) if letter == '{']
-                closing_brackets = [i for i, letter in enumerate(self.buffer) if letter == '}']
+                # opening_brackets = [i for i, letter in enumerate(self.buffer) if letter == '{']
+                # closing_brackets = [i for i, letter in enumerate(self.buffer) if letter == '}']
 
-                for start in opening_brackets:
-                    for end in closing_brackets:
-                        try:
-                            msg = self.deserialize(self.buffer[start:end+1])
-                            if msg.get("op",None) != None:
-                                # TODO: check if throwing away leading data like this is okay.. loops look okay..
-                                self.buffer = self.buffer[end+1:len(self.buffer)]
-                                # jump out of inner loop if json-decode succeeded
-                                break
-                        except Exception,e:
-                            # debug json-decode errors with this line
-                            #print e
-                            pass
-                    # if load was successfull --> break outer loop, too.. -> no need to check if json begins at a "later" opening bracket..
-                    if msg != None:
-                        break
+                # for start in opening_brackets:
+                #     for end in closing_brackets:
+                #         try:
+                #             msg = self.deserialize(self.buffer[start:end+1])
+                #             if msg.get("op",None) != None:
+                #                 # TODO: check if throwing away leading data like this is okay.. loops look okay..
+                #                 self.buffer = self.buffer[end+1:len(self.buffer)]
+                #                 # jump out of inner loop if json-decode succeeded
+                #                 break
+                #         except Exception,e:
+                #             # debug json-decode errors with this line
+                #             #print e
+                #             pass
+                #     # if load was successfull --> break outer loop, too.. -> no need to check if json begins at a "later" opening bracket..
+                #     if msg != None:
+                #         break
+                self.log("error", "Exception in deserialisation of incoming message")
+                self.log("error", e)
+                self.log("error", "Data lenght" + str(len(message_string)))
 
         # if decoding of buffer failed .. simply return
         if msg is None:
@@ -199,13 +201,13 @@ class Protocol:
         except Exception as exc:
             self.log("error", "%s: %s" % (op, str(exc)), mid)
 
-        # if anything left in buffer .. re-call self.incoming
-        # TODO: check what happens if we have "garbage" on tcp-stack --> infinite loop might be triggered! .. might get out of it when next valid JSON arrives since only data after last 'valid' closing bracket is kept
-        if len(self.buffer) > 0:
-            # try to avoid infinite loop..
-            if self.old_buffer != self.buffer:
-                self.old_buffer = self.buffer
-                self.incoming()
+        # # if anything left in buffer .. re-call self.incoming
+        # # TODO: check what happens if we have "garbage" on tcp-stack --> infinite loop might be triggered! .. might get out of it when next valid JSON arrives since only data after last 'valid' closing bracket is kept
+        # if len(self.buffer) > 0:
+        #     # try to avoid infinite loop..
+        #     if self.old_buffer != self.buffer:
+        #         self.old_buffer = self.buffer
+        #         self.incoming()
 
 
 
@@ -229,7 +231,7 @@ class Protocol:
         message -- a dict of message values to be marshalled and sent
         cid     -- (optional) an associated id
 
-        """
+        """        
         serialized = self.serialize(message, cid)
         if serialized is not None:
             if self.png == "png":
@@ -251,13 +253,15 @@ class Protocol:
                     if self.bson_only_mode:
                         self.outgoing(bson.BSON.encode(fragment))
                     else:
-                        self.outgoing(json.dumps(fragment))
+                        # self.outgoing(json.dumps(fragment))
+                        self.outgoing(zlib.compress(json.dumps(fragment)))
                     # okay to use delay here (sender's send()-function) because rosbridge is sending next request only to service provider when last one had finished)
                     #  --> if this was not the case this delay needed to be implemented in service-provider's (meaning message receiver's) send_message()-function in rosbridge_tcp.py)
                     time.sleep(self.delay_between_messages)
             # else send message as it is
             else:
-                self.outgoing(serialized)
+                # self.outgoing(serialized)
+                self.outgoing(zlib.compress(serialized))
                 time.sleep(self.delay_between_messages)
 
     def finish(self):
@@ -286,6 +290,7 @@ class Protocol:
                 return bson.BSON.encode(msg)
             else:    
                 return json.dumps(msg)
+                # return zlib.compress(json.dumps(msg))
         except:
             if cid is not None:
                 # Only bother sending the log message if there's an id
@@ -312,6 +317,11 @@ class Protocol:
                 return bson_message.decode()
             else:
                 return json.loads(msg)
+                #return json.loads(zlib.decompress(msg))
+                #msg2=[]
+                #for message in self.buffer:
+                #    msg2.append(json.loads(zlib.decompress(msg)))
+                #return msg2
         except Exception, e:
             # if we did try to deserialize whole buffer .. first try to let self.incoming check for multiple/partial json-decodes before logging error
             # .. this means, if buffer is not == msg --> we tried to decode part of buffer

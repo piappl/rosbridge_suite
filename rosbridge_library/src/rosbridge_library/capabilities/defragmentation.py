@@ -2,6 +2,8 @@ from rosbridge_library.capability import Capability
 from datetime import datetime
 import threading
 import datetime
+import json
+import zlib
 
 class ReceivedFragments():
     """
@@ -128,6 +130,7 @@ class Defragment(Capability, threading.Thread):
             self.protocol.log("debug", log_msg)
 
         #print "received fragments:", len(self.received_fragments[msg_id]["fragment_list"].keys())
+
         # Add fragment to fragment container's list if not already in list
         if msg_num not in self.received_fragments[msg_id]["fragment_list"].keys():
             if msg_num <= self.received_fragments[msg_id]["total"]:
@@ -185,7 +188,7 @@ class Defragment(Capability, threading.Thread):
             duration = datetime.datetime.now() - now
 
             # Pass the reconstructed message to rosbridge
-            self.protocol.incoming(reconstructed_msg)
+            # self.protocol.incoming(reconstructed_msg)
             log_msg = ["reconstructed message (ID:" + str(msg_id) + ") from "]
             log_msg.extend([str(msg_total), " fragments. "])
             # cannot access msg.data if message is a service_response or else!
@@ -198,6 +201,22 @@ class Defragment(Capability, threading.Thread):
             del self.received_fragments[msg_id]
             log_msg = "removed fragment list for messageID " + str(msg_id)
             self.protocol.log("debug", log_msg)
+            # now try to pass message to according operation
+            # This is operation for reconstructed message
+            msg = self.protocol.deserialize(reconstructed_msg)
+            mid = None
+            if "id" in msg:
+                mid = msg["id"]
+            if "op" not in msg:
+                if "receiver" in msg:
+                    self.log("error", "Received a rosbridge v1.0 message.  Please refer to rosbridge.org for the correct format of rosbridge v2.0 messages.  Original message was: %s" % message_string)
+                else:
+                    self.log("error", "Received a message without an op.  All messages require 'op' field with value one of: %s.  Original message was: %s" % (self.operations.keys(), message_string), mid)
+                return
+            op = msg["op"]
+            self.protocol.operations[op](msg)
+            
+            # self.log("error", "%s: %s" % (op, str(exc)), mid)
 
     def finish(self):
         self.received_fragments = None
